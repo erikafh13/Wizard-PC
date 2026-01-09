@@ -6,21 +6,28 @@ from io import BytesIO
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Sistem Bundling PC Pro", layout="wide")
 
-st.title("🖥️ Sistem Bundling PC - Table Selection Mode")
-st.markdown("Pilih komponen langsung dari tabel. Klik pada baris produk untuk memilihnya.")
+st.title("🖥️ Sistem Bundling PC - Auto Selection")
+st.markdown("Sistem otomatis merekomendasikan item teratas. Klik baris pada tabel untuk mengubah pilihan.")
 
 # --- FUNGSI PEMROSESAN DATA ---
 def process_data(df):
-    # Filter Stock > 0 dan kolom yang diperlukan
-    # Pastikan nama kolom sesuai dengan file asli Anda
+    # Bersihkan nama kolom (hilangkan spasi berlebih)
+    df.columns = df.columns.str.strip()
+    
+    # Pastikan kolom numerik aman
+    cols_to_numeric = ['Web', 'Stock Total', 'Current SO']
+    for col in cols_to_numeric:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    
+    # Filter Stock > 0
     df = df[df['Stock Total'] > 0].copy()
     df['Nama Accurate'] = df['Nama Accurate'].fillna('')
-    df['Web'] = pd.to_numeric(df['Web'], errors='coerce').fillna(0)
     
     # Mapping Kolom Baru
     df['Office'] = False
-    df['Std/2D'] = False # Gaming Standard
-    df['Adv/3D'] = False # Gaming Advanced
+    df['Std/2D'] = False 
+    df['Adv/3D'] = False 
     df['NeedVGA'] = False
     df['HasPSU'] = False
 
@@ -106,44 +113,48 @@ def process_data(df):
     
     return df
 
-# --- HELPER: FUNGSI MEMILIH KOMPONEN DENGAN TABEL ---
+# --- HELPER: FUNGSI MEMILIH KOMPONEN ---
 def component_selector(label, df_source, key_prefix):
-    """Menampilkan dataframe interaktif untuk pemilihan komponen"""
-    st.markdown(f"### {label}")
+    """Menampilkan dataframe interaktif. Jika user belum pilih, otomatis ambil baris pertama."""
+    st.markdown(f"**{label}**")
     
     if df_source.empty:
-        st.warning(f"Tidak ada produk {label} yang cocok dengan kategori ini.")
+        st.warning(f"Stok kosong untuk {label}.")
         return None
 
-    # Konfigurasi Kolom agar rapi
+    # Konfigurasi Kolom Tampilan
     col_config = {
         "Nama Accurate": st.column_config.TextColumn("Nama Produk", width="medium"),
+        "Brand": st.column_config.TextColumn("Brand", width="small"),
         "Web": st.column_config.NumberColumn("Harga", format="Rp %d"),
-        "Stock Total": st.column_config.NumberColumn("Stok", help="Sisa stok gudang"),
-        "Office": st.column_config.CheckboxColumn("Office"),
-        "Std/2D": st.column_config.CheckboxColumn("Std/2D"),
-        "Adv/3D": st.column_config.CheckboxColumn("Adv/3D"),
+        "Stock Total": st.column_config.NumberColumn("Stock", help="Total Stok"),
+        "Current SO": st.column_config.NumberColumn("SO", help="Current Sales Order"),
     }
     
-    # Tampilkan kolom-kolom penting saja
-    display_cols = ["Nama Accurate", "Web", "Stock Total", "Office", "Std/2D", "Adv/3D"]
+    # Kolom yang ditampilkan di tabel pemilihan (Sesuai Request)
+    display_cols = ["Nama Accurate", "Brand", "Web", "Stock Total", "Current SO"]
     
-    # Widget Dataframe dengan Selection Mode
+    # Pastikan kolom ada di dataframe
+    valid_cols = [c for c in display_cols if c in df_source.columns]
+
     selection = st.dataframe(
-        df_source[display_cols],
+        df_source[valid_cols],
         use_container_width=True,
         hide_index=True,
         column_config=col_config,
-        selection_mode="single-row", # Hanya boleh pilih 1
+        selection_mode="single-row",
         on_select="rerun",
         key=f"table_{key_prefix}"
     )
     
-    # Mengambil data baris yang dipilih
+    # LOGIKA AUTO-SELECT
     if selection.selection.rows:
+        # User memilih manual
         selected_index = selection.selection.rows[0]
         return df_source.iloc[selected_index]
-    return None
+    else:
+        # Default: Ambil baris pertama (Top Recommendation)
+        return df_source.iloc[0]
 
 # --- HELPER: EXCEL DOWNLOADER ---
 def to_excel(df):
@@ -164,16 +175,6 @@ if uploaded_file:
 
         data = process_data(raw_df)
 
-        # Tab untuk melihat raw data hasil mapping (opsional)
-        with st.expander("📂 Lihat Data Mentah Hasil Mapping (Klik untuk buka)"):
-            st.dataframe(data)
-            st.download_button(
-                label="📥 Download Data Mapping (Excel)",
-                data=to_excel(data),
-                file_name="data_mapping_pc.xlsx",
-                mime="application/vnd.ms-excel"
-            )
-        
         # --- PILIH KATEGORI ---
         st.divider()
         bundle_type_map = {
@@ -183,82 +184,94 @@ if uploaded_file:
         }
         
         bundle_label = st.radio("Pilih Kategori Peruntukan PC:", list(bundle_type_map.keys()), horizontal=True)
-        bundle_col = bundle_type_map[bundle_label] # Ambil nama kolom pendek (misal: Std/2D)
-        
-        st.info(f"Menampilkan komponen yang cocok untuk: **{bundle_label}** (Stock tersedia)")
+        bundle_col = bundle_type_map[bundle_label]
         
         # Filter global berdasarkan kategori bundle
         filtered_data = data[data[bundle_col] == True].sort_values('Web')
 
+        # --- TAMPILAN RAW DATA (SESUAI REQUEST) ---
+        with st.expander(f"📂 Lihat Data Stok: {bundle_label} (Klik untuk buka)"):
+            # Cari semua kolom yang mengandung kata 'Stock'
+            stock_cols = [c for c in data.columns if 'Stock' in c]
+            
+            # Kolom wajib yang diminta
+            base_cols = ['SKU', 'Kategori', 'Brand', 'Nama Accurate', 'Current SO', 'ABC Category']
+            
+            # Gabungkan kolom (pastikan kolom ada di data)
+            final_raw_cols = [c for c in base_cols if c in data.columns] + stock_cols + [bundle_col]
+            
+            # Tampilkan data yang sudah difilter kategori
+            st.dataframe(filtered_data[final_raw_cols], use_container_width=True, hide_index=True)
+            
+            st.download_button(
+                label="📥 Download Data Filtered (Excel)",
+                data=to_excel(filtered_data[final_raw_cols]),
+                file_name=f"data_stok_{bundle_col.replace('/','_')}.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+
+        st.divider()
+        st.info(f"Komponen otomatis terpilih berdasarkan harga terendah untuk: **{bundle_label}**. Silakan sesuaikan.")
+        
         selected_bundle = {}
 
         # 1. PROCESSOR
         procs = filtered_data[filtered_data['Kategori'] == 'Processor']
-        sel_proc = component_selector("1. Pilih Processor", procs, "proc")
-        if sel_proc is not None:
-            selected_bundle['Processor'] = sel_proc
+        sel_proc = component_selector("1. Processor", procs, "proc")
+        if sel_proc is not None: selected_bundle['Processor'] = sel_proc
 
         # 2. MOTHERBOARD
         mobs = filtered_data[filtered_data['Kategori'] == 'Motherboard']
-        sel_mobo = component_selector("2. Pilih Motherboard", mobs, "mobo")
-        if sel_mobo is not None:
-            selected_bundle['Motherboard'] = sel_mobo
+        sel_mobo = component_selector("2. Motherboard", mobs, "mobo")
+        if sel_mobo is not None: selected_bundle['Motherboard'] = sel_mobo
 
         # 3. RAM
         rams = filtered_data[filtered_data['Kategori'] == 'Memory RAM']
-        sel_ram = component_selector("3. Pilih RAM", rams, "ram")
-        if sel_ram is not None:
-            selected_bundle['RAM'] = sel_ram
+        sel_ram = component_selector("3. Memory RAM", rams, "ram")
+        if sel_ram is not None: selected_bundle['RAM'] = sel_ram
 
         # 4. SSD
         ssds = filtered_data[filtered_data['Kategori'] == 'SSD Internal']
-        sel_ssd = component_selector("4. Pilih SSD", ssds, "ssd")
-        if sel_ssd is not None:
-            selected_bundle['SSD'] = sel_ssd
+        sel_ssd = component_selector("4. SSD Internal", ssds, "ssd")
+        if sel_ssd is not None: selected_bundle['SSD'] = sel_ssd
 
-        # 5. VGA (Kondisional)
+        # 5. VGA (Logic)
         if 'Processor' in selected_bundle:
             need_vga = selected_bundle['Processor']['NeedVGA']
-            
-            # Siapkan data VGA
             vgas = filtered_data[filtered_data['Kategori'] == 'VGA']
             
             if need_vga:
-                st.warning("⚠️ Processor seri 'F' terdeteksi. Wajib memilih VGA.")
-                sel_vga = component_selector("5. Pilih VGA (Wajib)", vgas, "vga")
-                if sel_vga is not None:
-                    selected_bundle['VGA'] = sel_vga
+                st.warning("⚠️ Processor Seri F (Wajib VGA)")
+                sel_vga = component_selector("5. VGA (Wajib)", vgas, "vga")
+                if sel_vga is not None: selected_bundle['VGA'] = sel_vga
             else:
-                st.success("✅ Processor memiliki IGPU. VGA Opsional.")
-                show_vga = st.checkbox("Tambah VGA card terpisah?")
-                if show_vga:
-                    sel_vga = component_selector("5. Pilih VGA (Opsional)", vgas, "vga")
-                    if sel_vga is not None:
-                        selected_bundle['VGA'] = sel_vga
+                st.success("✅ IGPU Available")
+                # Untuk opsional, kita pakai checkbox. Jika dicentang, baru muncul tabel.
+                use_vga = st.checkbox("Tambah VGA Card (Opsional)?", value=False)
+                if use_vga:
+                    sel_vga = component_selector("5. VGA (Opsional)", vgas, "vga")
+                    if sel_vga is not None: selected_bundle['VGA'] = sel_vga
 
         # 6. CASING
         cases = filtered_data[filtered_data['Kategori'] == 'Casing PC']
-        sel_case = component_selector("6. Pilih Casing", cases, "case")
-        if sel_case is not None:
-            selected_bundle['Casing'] = sel_case
+        sel_case = component_selector("6. Casing PC", cases, "case")
+        if sel_case is not None: selected_bundle['Casing'] = sel_case
 
-        # 7. PSU (Kondisional)
+        # 7. PSU (Logic)
         if 'Casing' in selected_bundle:
             has_psu = selected_bundle['Casing']['HasPSU']
             if not has_psu:
                 psus = filtered_data[filtered_data['Kategori'] == 'Power Supply']
-                sel_psu = component_selector("7. Pilih Power Supply", psus, "psu")
-                if sel_psu is not None:
-                    selected_bundle['PSU'] = sel_psu
+                sel_psu = component_selector("7. Power Supply", psus, "psu")
+                if sel_psu is not None: selected_bundle['PSU'] = sel_psu
             else:
-                st.info("ℹ️ Casing yang dipilih sudah termasuk PSU bawaan.")
+                st.caption("ℹ️ Casing sudah termasuk PSU.")
 
         # --- RINGKASAN & DOWNLOAD ---
         st.divider()
-        st.subheader("🧾 Ringkasan Estimasi Rakitan")
+        st.subheader("🧾 Ringkasan Bundling")
         
         if selected_bundle:
-            # Convert dict to DataFrame for display
             summary_list = []
             total_price = 0
             
@@ -266,13 +279,13 @@ if uploaded_file:
                 summary_list.append({
                     "Komponen": part,
                     "Nama Produk": row['Nama Accurate'],
+                    "Brand": row['Brand'] if 'Brand' in row else '-',
                     "Harga": row['Web']
                 })
                 total_price += row['Web']
             
             summary_df = pd.DataFrame(summary_list)
             
-            # Tampilkan Tabel Ringkasan
             st.dataframe(
                 summary_df, 
                 use_container_width=True, 
@@ -282,19 +295,16 @@ if uploaded_file:
             
             st.markdown(f"### Total Estimasi: **Rp {total_price:,.0f}**")
             
-            # Tombol Download Hasil
             st.download_button(
-                label="📥 Download Rincian Rakitan (.xlsx)",
+                label="📥 Download Hasil Rakitan (.xlsx)",
                 data=to_excel(summary_df),
-                file_name=f"rakitan_pc_{bundle_label}.xlsx",
+                file_name=f"rakitan_{bundle_col}.xlsx",
                 mime="application/vnd.ms-excel"
             )
-        else:
-            st.caption("Belum ada komponen yang dipilih.")
             
     except Exception as e:
         st.error(f"Terjadi kesalahan: {e}")
-        st.write("Pastikan file memiliki kolom: 'Nama Accurate', 'Web', 'Stock Total', 'Kategori'")
+        st.write("Detail Error untuk debugging:", str(e))
 
 else:
     st.info("Silakan upload file data stok untuk memulai.")
