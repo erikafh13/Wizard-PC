@@ -105,89 +105,116 @@ def process_data(df):
     return df
 
 # --- INPUT DATA ---
-uploaded_file = st.file_uploader("Upload Data Portal (CSV)", type="csv")
+uploaded_file = st.file_uploader("Upload Data Portal (CSV/Excel)", type=["csv", "xlsx", "xls"])
 
 if uploaded_file:
-    raw_df = pd.read_csv(uploaded_file)
-    data = process_data(raw_df)
-    
-    # --- PILIH KATEGORI ---
-    bundle_type = st.radio("Pilih Kategori PC:", 
-                           ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"])
-    
-    st.divider()
-    
-    # Filter data berdasarkan kategori bundle dan urutkan harga
-    filtered_data = data[data[bundle_type] == 1].sort_values('Web')
+    try:
+        # DETEKSI TIPE FILE
+        if uploaded_file.name.endswith('.csv'):
+            raw_df = pd.read_csv(uploaded_file)
+        else:
+            # Asumsi Excel jika bukan CSV
+            raw_df = pd.read_excel(uploaded_file)
 
-    selected_bundle = {}
+        data = process_data(raw_df)
+        
+        # --- PILIH KATEGORI ---
+        bundle_type = st.radio("Pilih Kategori PC:", 
+                               ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"])
+        
+        st.divider()
+        
+        # Filter data berdasarkan kategori bundle dan urutkan harga
+        filtered_data = data[data[bundle_type] == 1].sort_values('Web')
 
-    # 1. PROCESSOR
-    procs = filtered_data[filtered_data['Kategori'] == 'Processor']
-    p_choice = st.selectbox("1. Pilih Processor:", procs['Nama Accurate'] + " - Rp" + procs['Web'].map('{:,.0f}'.format))
-    if p_choice:
-        selected_proc_name = p_choice.split(" - Rp")[0]
-        selected_proc = procs[procs['Nama Accurate'] == selected_proc_name].iloc[0]
-        selected_bundle['Processor'] = selected_proc
+        selected_bundle = {}
 
-    # 2. MOTHERBOARD
-    mobs = filtered_data[filtered_data['Kategori'] == 'Motherboard']
-    m_choice = st.selectbox("2. Pilih Motherboard:", mobs['Nama Accurate'] + " - Rp" + mobs['Web'].map('{:,.0f}'.format))
-    if m_choice:
-        selected_bundle['Motherboard'] = mobs[mobs['Nama Accurate'] == m_choice.split(" - Rp")[0]].iloc[0]
+        # 1. PROCESSOR
+        procs = filtered_data[filtered_data['Kategori'] == 'Processor']
+        if not procs.empty:
+            p_choice = st.selectbox("1. Pilih Processor:", procs['Nama Accurate'] + " - Rp" + procs['Web'].map('{:,.0f}'.format))
+            if p_choice:
+                selected_proc_name = p_choice.split(" - Rp")[0]
+                selected_proc = procs[procs['Nama Accurate'] == selected_proc_name].iloc[0]
+                selected_bundle['Processor'] = selected_proc
+        else:
+            st.warning("Stok Processor untuk kategori ini kosong.")
 
-    # 3. RAM
-    rams = filtered_data[filtered_data['Kategori'] == 'Memory RAM']
-    r_choice = st.selectbox("3. Pilih Memory RAM:", rams['Nama Accurate'] + " - Rp" + rams['Web'].map('{:,.0f}'.format))
-    if r_choice:
-        selected_bundle['RAM'] = rams[rams['Nama Accurate'] == r_choice.split(" - Rp")[0]].iloc[0]
+        # 2. MOTHERBOARD
+        mobs = filtered_data[filtered_data['Kategori'] == 'Motherboard']
+        if not mobs.empty:
+            m_choice = st.selectbox("2. Pilih Motherboard:", mobs['Nama Accurate'] + " - Rp" + mobs['Web'].map('{:,.0f}'.format))
+            if m_choice:
+                selected_bundle['Motherboard'] = mobs[mobs['Nama Accurate'] == m_choice.split(" - Rp")[0]].iloc[0]
 
-    # 4. SSD
-    ssds = filtered_data[filtered_data['Kategori'] == 'SSD Internal']
-    s_choice = st.selectbox("4. Pilih SSD Internal:", ssds['Nama Accurate'] + " - Rp" + ssds['Web'].map('{:,.0f}'.format))
-    if s_choice:
-        selected_bundle['SSD'] = ssds[ssds['Nama Accurate'] == s_choice.split(" - Rp")[0]].iloc[0]
+        # 3. RAM
+        rams = filtered_data[filtered_data['Kategori'] == 'Memory RAM']
+        if not rams.empty:
+            r_choice = st.selectbox("3. Pilih Memory RAM:", rams['Nama Accurate'] + " - Rp" + rams['Web'].map('{:,.0f}'.format))
+            if r_choice:
+                selected_bundle['RAM'] = rams[rams['Nama Accurate'] == r_choice.split(" - Rp")[0]].iloc[0]
 
-    # 5. VGA (Conditional)
-    need_vga = selected_bundle['Processor']['NeedVGA'] == 1
-    if need_vga:
-        vgas = filtered_data[filtered_data['Kategori'] == 'VGA']
-        v_choice = st.selectbox("5. Pilih VGA (Wajib untuk Seri F):", vgas['Nama Accurate'] + " - Rp" + vgas['Web'].map('{:,.0f}'.format))
-        if v_choice:
-            selected_bundle['VGA'] = vgas[vgas['Nama Accurate'] == v_choice.split(" - Rp")[0]].iloc[0]
-    else:
-        st.info("Processor ini memiliki IGPU, VGA Opsional.")
-        add_vga = st.checkbox("Tambah VGA Tambahan?")
-        if add_vga:
-            vgas = filtered_data[filtered_data['Kategori'] == 'VGA']
-            v_choice = st.selectbox("Pilih VGA:", vgas['Nama Accurate'] + " - Rp" + vgas['Web'].map('{:,.0f}'.format))
-            if v_choice:
-                selected_bundle['VGA'] = vgas[vgas['Nama Accurate'] == v_choice.split(" - Rp")[0]].iloc[0]
+        # 4. SSD
+        ssds = filtered_data[filtered_data['Kategori'] == 'SSD Internal']
+        if not ssds.empty:
+            s_choice = st.selectbox("4. Pilih SSD Internal:", ssds['Nama Accurate'] + " - Rp" + ssds['Web'].map('{:,.0f}'.format))
+            if s_choice:
+                selected_bundle['SSD'] = ssds[ssds['Nama Accurate'] == s_choice.split(" - Rp")[0]].iloc[0]
 
-    # 6. CASING
-    cases = filtered_data[filtered_data['Kategori'] == 'Casing PC']
-    c_choice = st.selectbox("6. Pilih Casing PC:", cases['Nama Accurate'] + " - Rp" + cases['Web'].map('{:,.0f}'.format))
-    if c_choice:
-        selected_bundle['Casing'] = cases[cases['Nama Accurate'] == c_choice.split(" - Rp")[0]].iloc[0]
+        # 5. VGA (Conditional)
+        if 'Processor' in selected_bundle:
+            need_vga = selected_bundle['Processor']['NeedVGA'] == 1
+            if need_vga:
+                vgas = filtered_data[filtered_data['Kategori'] == 'VGA']
+                if not vgas.empty:
+                    v_choice = st.selectbox("5. Pilih VGA (Wajib untuk Seri F):", vgas['Nama Accurate'] + " - Rp" + vgas['Web'].map('{:,.0f}'.format))
+                    if v_choice:
+                        selected_bundle['VGA'] = vgas[vgas['Nama Accurate'] == v_choice.split(" - Rp")[0]].iloc[0]
+                else:
+                    st.error("Stok VGA Kosong!")
+            else:
+                st.info("Processor ini memiliki IGPU, VGA Opsional.")
+                add_vga = st.checkbox("Tambah VGA Tambahan?")
+                if add_vga:
+                    vgas = filtered_data[filtered_data['Kategori'] == 'VGA']
+                    v_choice = st.selectbox("Pilih VGA:", vgas['Nama Accurate'] + " - Rp" + vgas['Web'].map('{:,.0f}'.format))
+                    if v_choice:
+                        selected_bundle['VGA'] = vgas[vgas['Nama Accurate'] == v_choice.split(" - Rp")[0]].iloc[0]
 
-    # 7. PSU (Conditional)
-    has_psu = selected_bundle['Casing']['HasPSU'] == 1
-    if not has_psu:
-        psus = filtered_data[filtered_data['Kategori'] == 'Power Supply']
-        ps_choice = st.selectbox("7. Pilih Power Supply:", psus['Nama Accurate'] + " - Rp" + psus['Web'].map('{:,.0f}'.format))
-        if ps_choice:
-            selected_bundle['PSU'] = psus[psus['Nama Accurate'] == ps_choice.split(" - Rp")[0]].iloc[0]
-    else:
-        st.success("Casing sudah termasuk PSU (Kategori Office).")
+        # 6. CASING
+        cases = filtered_data[filtered_data['Kategori'] == 'Casing PC']
+        if not cases.empty:
+            c_choice = st.selectbox("6. Pilih Casing PC:", cases['Nama Accurate'] + " - Rp" + cases['Web'].map('{:,.0f}'.format))
+            if c_choice:
+                selected_bundle['Casing'] = cases[cases['Nama Accurate'] == c_choice.split(" - Rp")[0]].iloc[0]
 
-    # --- RINGKASAN BUNDLE ---
-    st.divider()
-    st.subheader("📋 Ringkasan Bundling")
-    total_price = 0
-    for part, row in selected_bundle.items():
-        st.write(f"**{part}**: {row['Nama Accurate']} - Rp{row['Web']:,.0f}")
-        total_price += row['Web']
-    
-    st.markdown(f"### 💰 Total Harga: **Rp{total_price:,.0f}**")
+        # 7. PSU (Conditional)
+        if 'Casing' in selected_bundle:
+            has_psu = selected_bundle['Casing']['HasPSU'] == 1
+            if not has_psu:
+                psus = filtered_data[filtered_data['Kategori'] == 'Power Supply']
+                if not psus.empty:
+                    ps_choice = st.selectbox("7. Pilih Power Supply:", psus['Nama Accurate'] + " - Rp" + psus['Web'].map('{:,.0f}'.format))
+                    if ps_choice:
+                        selected_bundle['PSU'] = psus[psus['Nama Accurate'] == ps_choice.split(" - Rp")[0]].iloc[0]
+            else:
+                st.success("Casing sudah termasuk PSU (Kategori Office).")
+
+        # --- RINGKASAN BUNDLE ---
+        st.divider()
+        st.subheader("📋 Ringkasan Bundling")
+        total_price = 0
+        if selected_bundle:
+            for part, row in selected_bundle.items():
+                st.write(f"**{part}**: {row['Nama Accurate']} - Rp{row['Web']:,.0f}")
+                total_price += row['Web']
+            
+            st.markdown(f"### 💰 Total Harga: **Rp{total_price:,.0f}**")
+        else:
+            st.warning("Belum ada komponen yang dipilih.")
+            
+    except Exception as e:
+        st.error(f"Terjadi kesalahan format data: {e}")
+
 else:
-    st.warning("Silakan upload file CSV Data Portal untuk memulai.")
+    st.info("Silakan upload file CSV atau Excel Data Portal untuk memulai.")
